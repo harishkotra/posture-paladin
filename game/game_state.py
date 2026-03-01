@@ -140,9 +140,10 @@ class GameState:
 
     def trigger_coaching(self):
         now = time.time()
-        # Debounce coaching to avoid spamming the LLM
-        if now - self.last_llm_trigger_time > 30: # 30s cooldown
+        # Debounce coaching - only fire every 3 minutes max to avoid Gemini 429 rate limits
+        if now - self.last_llm_trigger_time > 180:
             self.needs_coaching = True
+            self.last_llm_trigger_time = now  # Critical: update timestamp so debounce actually works
 
     def get_summary_state(self):
         return {

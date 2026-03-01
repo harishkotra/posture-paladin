@@ -110,14 +110,15 @@ class PostureProcessor:
         severity = 0.0
 
         # EAR (Eye Aspect Ratio) Calculation via Mediapipe Task API
+        # Only triggers if a face is actually detected (prevents false positives on empty frames)
         if frame_array is not None:
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_array)
             try:
                 results = self.face_landmarker.detect(mp_image)
             except Exception as e:
-                print(f"Mediapipe Error: {e}")
                 results = None
                 
+            # Only check for sleeping if a face was actually detected
             if results and results.face_landmarks:
                 landmarks = results.face_landmarks[0]
                 h, w, _ = frame_array.shape
@@ -131,16 +132,17 @@ class PostureProcessor:
                     v1 = np.linalg.norm(p2 - p6)
                     v2 = np.linalg.norm(p3 - p5)
                     h_dist = np.linalg.norm(p1 - p4)
-                    return (v1 + v2) / (2.0 * h_dist) if h_dist > 0 else 0
+                    return (v1 + v2) / (2.0 * h_dist) if h_dist > 0 else 0.5  # default OPEN if no eye width
                 
                 left_eye_indices = [33, 160, 158, 133, 153, 144]
                 right_eye_indices = [362, 385, 387, 263, 373, 380]
                 
                 left_ear = calc_ear(left_eye_indices)
                 right_ear = calc_ear(right_eye_indices)
+                avg_ear = (left_ear + right_ear) / 2.0
                 
-                # If average EAR drops below ~0.2, eyes are likely closed
-                if (left_ear + right_ear) / 2.0 < 0.22:
+                # If average EAR drops below 0.15, eyes are genuinely closed (not just a blink)
+                if avg_ear < 0.15:
                     state = "eyes_closed"
                     severity = 1.0
         

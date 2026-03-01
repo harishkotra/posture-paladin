@@ -16,6 +16,8 @@ import time
 import av
 import aiortc
 from typing import Optional
+import functools
+from concurrent.futures import ThreadPoolExecutor
 from vision_agents.core.processors import VideoProcessorPublisher
 from vision_agents.core.utils.video_forwarder import VideoForwarder
 from vision_agents.core.utils.video_track import QueuedVideoTrack
@@ -30,6 +32,7 @@ class PosturePaladinProcessor(VideoProcessorPublisher):
         self.start_time = time.time()
         self._video_forwarder = None
         self._shutdown = False
+        self._executor = ThreadPoolExecutor(max_workers=2)  # for CPU-heavy inference
         self._agent = None
         self._video_track = QueuedVideoTrack(fps=30)
         
@@ -68,8 +71,12 @@ class PosturePaladinProcessor(VideoProcessorPublisher):
                     keypoints = person["keypoints"]
                     break # just take the first person for paladin logic
                     
-        # 3. Analyze Posture
-        posture_result = self.posture_processor.process(keypoints, frame_array)
+        # 3. Analyze Posture - run in thread so it doesn't block the event loop
+        loop = asyncio.get_event_loop()
+        posture_result = await loop.run_in_executor(
+            self._executor,
+            functools.partial(self.posture_processor.process, keypoints, frame_array)
+        )
         
         # 4. Update Game State
         if posture_result:
@@ -92,13 +99,30 @@ class PosturePaladinProcessor(VideoProcessorPublisher):
         # Output frame back to the call
         await self._video_track.add_frame(new_frame)
         
-        # Trigger LLM if needed
+        # Trigger LLM coaching (fire-and-forget in background - NEVER block the frame loop)
         if getattr(self.game_state, 'needs_coaching', False) and self._agent:
             self.game_state.needs_coaching = False
-            state_data = self.game_state.get_summary_state()
-            print(f"Triggering LLM with state: {state_data}")
-            await self._agent.handle_text_input(f"System State: {state_data}. Give brief 1 sentence feedback!")
-            
+            posture_state = posture_result.get('posture_state', 'unknown') if posture_result else 'unknown'
+            coaching_msgs = {
+                "slouching": "Warrior, straighten your spine! Your health is fading!",
+                "forward_head": "Pull your head back! You are leaning too far forward!",
+                "imbalance": "Level your shoulders! You are tilting to one side!",
+                "eyes_closed": "Wake up, warrior! Sleeping on duty costs you dearly!",
+                "good": f"Well done! Keep it up! Health: {self.game_state.health}, XP: {self.game_state.xp}",
+            }
+            msg = coaching_msgs.get(posture_state, f"Check your posture! State: {posture_state}")
+
+            async def _do_coach(m):
+                try:
+                    if hasattr(self._agent, 'llm') and self._agent.llm:
+                        await self._agent.llm.simple_response(m)
+                    else:
+                        print(f"[Coach] {m}")
+                except Exception as e:
+                    print(f"Coaching error (non-fatal): {e}")
+
+            asyncio.create_task(_do_coach(msg))  # fire-and-forget
+
         return new_frame
 
     async def process_video(
@@ -154,16 +178,17 @@ def create_agent(privacy_mode="Cloud Voice Mode"):
         instructions = f.read()
 
     # Apply Privacy Toggle Logic
-    llm = None
+    # Use standard GeminiLLM (HTTP-only, no persistent WebSocket) instead of Realtime.
+    # GeminiRealtime kept a permanent WebSocket that competed with Stream's WebSocket
+    # on the same event loop, causing the video to freeze every 30-60 seconds.
+    from vision_agents.plugins.gemini.gemini_llm import GeminiLLM
+    llm = GeminiLLM()
     if privacy_mode == "Cloud Voice Mode":
-        print("🟡 Cloud Voice Mode Enable (Sending parsed JSON text ONLY)")
-        llm = gemini.Realtime() 
+        print("🟡 Cloud Voice Mode (local HUD, text LLM coaching only)")
     elif privacy_mode == "Local Processing Mode":
-        print("🟢 Local Processing Mode (Voice Assistant Disabled, Screen Only)")
-        llm = None
+        print("🟢 Local Processing Mode (Screen Only)")
     elif privacy_mode == "Voice Disabled":
         print("🔴 Voice Disabled Mode")
-        llm = None
         
     # Inject mode onto game state for rendering it onto the UI
     game_state.privacy_mode_name = privacy_mode
