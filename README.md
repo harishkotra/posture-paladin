@@ -11,6 +11,9 @@
 
 If you sit properly, you gain XP, level up, and regenerate Health. If you slouch, lean, or remain inactive for too long, your Health drains. If it drops too low, the AI (powered by Gemini Realtime) dynamically intervenes over the call to coach you back to health.
 
+<img width="971" height="808" alt="Screenshot at Mar 01 23-57-52" src="https://github.com/user-attachments/assets/9f5461f0-6420-4794-ba1f-096a5f14c174" />
+
+
 ### Why This Was Built:
 - **The Modern Desk Worker Problem:** We spend 8+ hours a day on video calls, slowly destroying our spines and cardiovascular health.
 - **Notification Fatigue:** Traditional posture apps just send annoying push notifications that we instinctively ignore.
