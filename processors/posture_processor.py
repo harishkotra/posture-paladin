@@ -4,6 +4,8 @@ import numpy as np
 from collections import deque
 from game.game_state import GameState
 import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision as mp_vision
 
 class PostureProcessor:
     def __init__(self, game_state: GameState):
@@ -21,13 +23,16 @@ class PostureProcessor:
         
         self.base_hip_cx = None
         
-        # Mediapipe for Sleep Detection
-        self.face_mesh = mp.solutions.face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.5,
+        # Mediapipe for Sleep Detection (Task API)
+        base_options = mp_python.BaseOptions(model_asset_path='face_landmarker.task')
+        options = mp_vision.FaceLandmarkerOptions(
+            base_options=base_options,
+            num_faces=1,
+            min_face_detection_confidence=0.5,
+            min_face_presence_confidence=0.5,
             min_tracking_confidence=0.5
         )
+        self.face_landmarker = mp_vision.FaceLandmarker.create_from_options(options)
         
     def _compute_angle(self, p1, p2, p3=None):
         # Angle between line p1-p2 and vertical (if p3 is None)
@@ -104,11 +109,17 @@ class PostureProcessor:
         state = "good"
         severity = 0.0
 
-        # EAR (Eye Aspect Ratio) Calculation via Mediapipe
+        # EAR (Eye Aspect Ratio) Calculation via Mediapipe Task API
         if frame_array is not None:
-            results = self.face_mesh.process(frame_array)
-            if results.multi_face_landmarks:
-                landmarks = results.multi_face_landmarks[0].landmark
+            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame_array)
+            try:
+                results = self.face_landmarker.detect(mp_image)
+            except Exception as e:
+                print(f"Mediapipe Error: {e}")
+                results = None
+                
+            if results and results.face_landmarks:
+                landmarks = results.face_landmarks[0]
                 h, w, _ = frame_array.shape
                 
                 def get_pt(idx):
