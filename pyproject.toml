@@ -1,0 +1,15 @@
+[project]
+name = "posture-paladin"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "mediapipe>=0.10.32",
+    "opencv-python>=4.13.0.92",
+    "pydantic>=2.12.5",
+    "python-dotenv>=1.2.1",
+    "ultralytics>=8.4.19",
+    "vision-agents-plugins-ultralytics>=0.3.8",
+    "vision-agents[deepgram,elevenlabs,gemini,getstream]>=0.3.8",
+]
